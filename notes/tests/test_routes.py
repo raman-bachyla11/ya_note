@@ -15,7 +15,7 @@ class TestRoutes(TestCase):
     @classmethod
     def setUpTestData(cls):
         # Создаем пользователя-автора
-        cls.author = User.objects.create(username='Лев Толстой')
+        cls.author = User.objects.create(username='TestAuthor')
         unique_slug = uuid.uuid4().hex
         cls.notes = Note.objects.create(
             title='Заголовок',
