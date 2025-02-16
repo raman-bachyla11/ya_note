@@ -54,11 +54,19 @@ class TestSlugNaming(BaseNoteTestCase):
         self.auth_client = self.get_client(self.author)
 
     def test_note_with_valid_slug(self):
-        response = self.post_note_form(self.auth_client, self.url_note_add, self.form_data)
+        response = self.post_note_form(
+            self.auth_client,
+            self.url_note_add,
+            self.form_data
+        )
         self.assertRedirects(response, self.url_success)
 
     def test_slug_must_be_unique(self):
-        response = self.post_note_form(self.auth_client, self.url_note_add, {'slug': self.VALID_SLUG})
+        response = self.post_note_form(
+            self.auth_client,
+            self.url_note_add,
+            {'slug': self.VALID_SLUG}
+        )
         self.assertFormError(
             response,
             'form',
@@ -72,7 +80,11 @@ class TestSlugNaming(BaseNoteTestCase):
             'text': 'Some text',
             'slug': ''
         }
-        response = self.post_note_form(self.auth_client, self.url_note_add, data_with_empty_slug)
+        response = self.post_note_form(
+            self.auth_client,
+            self.url_note_add,
+            data_with_empty_slug
+        )
         self.assertRedirects(response, self.url_success)
 
         note = Note.objects.get(title='new_title')
@@ -109,14 +121,23 @@ class TestNoteEditDelete(BaseNoteTestCase):
         self.unauth_client = self.get_client(self.not_author)
 
     def test_author_edit_note(self):
-        response = self.post_note_form(self.auth_client, self.url_edit_note, self.edited_form_data, follow=True)
+        response = self.post_note_form(
+            self.auth_client,
+            self.url_edit_note,
+            self.edited_form_data,
+            follow=True
+        )
         self.assertRedirects(response, self.url_success)
         self.note.refresh_from_db()
         self.assertEqual(self.note.title, self.UPDATED_TITLE)
         self.assertEqual(self.note.text, self.UPDATED_TEXT)
 
     def test_not_author_cant_edit_note(self):
-        response = self.post_note_form(self.unauth_client, self.url_edit_note, self.edited_form_data)
+        response = self.post_note_form(
+            self.unauth_client,
+            self.url_edit_note,
+            self.edited_form_data
+        )
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
         self.note.refresh_from_db()
         self.assertEqual(self.note.title, self.ORIGINAL_TEST_TITLE)
