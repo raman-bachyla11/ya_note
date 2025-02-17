@@ -18,14 +18,14 @@ class BaseNoteTestCase(TestCase):
         cls.not_author = User.objects.create(username='NotAuthor')
         cls.url_success = reverse('notes:success')
 
-    def get_client(self, user):
-        """Return a new Client instance logged in as the given user."""
-        client = Client()
-        client.force_login(user)
-        return client
+    def setUp(self):
+        # Initialize clients for both the author and a non-author
+        self.auth_client = Client()
+        self.auth_client.force_login(self.author)
+        self.unauth_client = Client()
+        self.unauth_client.force_login(self.not_author)
 
     def post_note_form(self, client, url, data, follow=False):
-        """Helper to post form data to the given URL."""
         return client.post(url, data=data, follow=follow)
 
 
@@ -49,10 +49,6 @@ class TestSlugNaming(BaseNoteTestCase):
             'slug': uuid.uuid4().hex,
         }
 
-    def setUp(self):
-        # Set up an authenticated client for the author
-        self.auth_client = self.get_client(self.author)
-
     def test_note_with_valid_slug(self):
         response = self.post_note_form(
             self.auth_client,
@@ -62,16 +58,22 @@ class TestSlugNaming(BaseNoteTestCase):
         self.assertRedirects(response, self.url_success)
 
     def test_slug_must_be_unique(self):
+        # Include required fields to reach the unique-slug validation
+        data = {
+            'title': 'Another Note',
+            'text': 'Another text',
+            'slug': self.VALID_SLUG,
+        }
         response = self.post_note_form(
             self.auth_client,
             self.url_note_add,
-            {'slug': self.VALID_SLUG}
+            data
         )
         self.assertFormError(
             response,
             'form',
             'slug',
-            errors=f'{self.VALID_SLUG}{WARNING}'
+            f'{self.VALID_SLUG}{WARNING}'
         )
 
     def test_empty_slug_is_allowed(self):
@@ -116,10 +118,6 @@ class TestNoteEditDelete(BaseNoteTestCase):
         cls.url_edit_note = reverse('notes:edit', args=(cls.note.slug,))
         cls.url_delete_note = reverse('notes:delete', args=(cls.note.slug,))
 
-    def setUp(self):
-        self.auth_client = self.get_client(self.author)
-        self.unauth_client = self.get_client(self.not_author)
-
     def test_author_edit_note(self):
         response = self.post_note_form(
             self.auth_client,
@@ -144,11 +142,11 @@ class TestNoteEditDelete(BaseNoteTestCase):
         self.assertEqual(self.note.text, self.ORIGINAL_TEST_TEXT)
 
     def test_note_deletable_by_author(self):
-        response = self.auth_client.delete(self.url_delete_note)
+        response = self.auth_client.delete(self.url_delete_note, follow=True)
         self.assertRedirects(response, self.url_success)
-        self.assertEqual(Note.objects.count(), 0)
+        self.assertFalse(Note.objects.filter(pk=self.note.pk).exists())
 
     def test_not_author_cant_delete_note(self):
         response = self.unauth_client.delete(self.url_delete_note)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
-        self.assertEqual(Note.objects.count(), 1)
+        self.assertTrue(Note.objects.filter(pk=self.note.pk).exists())
