@@ -1,61 +1,57 @@
-import uuid
 from http import HTTPStatus
 
-from django.contrib.auth import get_user_model
-from django.test import TestCase
-from django.urls import reverse
+from .base_test import (
+    BaseTestCase,
+    DELETE_NOTE_URL,
+    EDIT_NOTE_URL,
+    HOME_URL,
+    LOGIN_URL,
+    LOGOUT_URL,
+    NOTE_DETAIL_URL,
+    SIGNUP_URL
+)
 
-from notes.models import Note
 
-User = get_user_model()
+class TestRoutes(BaseTestCase):
+    """
+    Тестирование маршрутов приложения.
+    Содержит тесты для проверки корректности кодов возврата и перенаправлений.
+    """
 
+    def test_status_codes(self):
+        """Проверка всех кодов возврата с различными клиентами."""
+        cases = [
+            # Общедоступные страницы
+            [HOME_URL, self.client, HTTPStatus.FOUND],
+            [LOGIN_URL, self.client, HTTPStatus.OK],
+            [LOGOUT_URL, self.client, HTTPStatus.OK],
+            [SIGNUP_URL, self.client, HTTPStatus.OK],
+            # Маршруты заметок для автора
+            [EDIT_NOTE_URL, self.author_client, HTTPStatus.OK],
+            [NOTE_DETAIL_URL, self.author_client, HTTPStatus.OK],
+            [DELETE_NOTE_URL, self.author_client, HTTPStatus.OK],
+            # Маршруты заметок для не-автора
+            [EDIT_NOTE_URL, self.not_author_client, HTTPStatus.NOT_FOUND],
+            [NOTE_DETAIL_URL, self.not_author_client, HTTPStatus.NOT_FOUND],
+            [DELETE_NOTE_URL, self.not_author_client, HTTPStatus.NOT_FOUND],
+        ]
+        for url, client, expected_status in cases:
+            with self.subTest(url=url, client=client):
+                response = client.get(url)
+                self.assertEqual(response.status_code, expected_status)
 
-class TestRoutes(TestCase):
-
-    @classmethod
-    def setUpTestData(cls):
-        # Создаем пользователя-автора
-        cls.author = User.objects.create(username='TestAuthor')
-        unique_slug = uuid.uuid4().hex
-        cls.notes = Note.objects.create(
-            title='Заголовок',
-            text='Текст',
-            author=cls.author,
-            slug=unique_slug,
-        )
-        cls.anonymous_user = User.objects.create(username='Читатель простой')
-
-    def test_pages_availability(self):
-        urls = (
-            ('notes:home', None),
-            ('users:login', None),
-            ('users:logout', None),
-            ('users:signup', None),
-        )
-        for name, args in urls:
-            with self.subTest(name=name):
-                url = reverse(name, args=args)
+    def test_redirects_for_anonymous_client(self):
+        """
+        Проверка перенаправлений для анонимного клиента при попытке
+        доступа к защищённым маршрутам.
+        """
+        protected_urls = [
+            EDIT_NOTE_URL,
+            NOTE_DETAIL_URL,
+            DELETE_NOTE_URL
+        ]
+        for url in protected_urls:
+            with self.subTest(url=url):
+                expected_redirect = self.get_expected_redirect(url)
                 response = self.client.get(url)
-                self.assertEqual(response.status_code, HTTPStatus.OK)
-
-    def test_availability_for_note_edit_and_delete(self):
-        users_statuses = (
-            (self.author, HTTPStatus.OK),
-            (self.anonymous_user, HTTPStatus.NOT_FOUND),
-        )
-        for user, status in users_statuses:
-            self.client.force_login(user)
-            for name in ('notes:edit', 'notes:delete', 'notes:detail'):
-                with self.subTest(user=user, name=name):
-                    url = reverse(name, args=(self.notes.slug,))
-                    response = self.client.get(url)
-                    self.assertEqual(response.status_code, status)
-
-    def test_redirect_for_anonymous_client(self):
-        login_url = reverse('users:login')
-        for name in ('notes:edit', 'notes:delete', 'notes:detail'):
-            with self.subTest(name=name):
-                url = reverse(name, args=(self.notes.slug,))
-                redirect_url = f'{login_url}?next={url}'
-                response = self.client.get(url)
-                self.assertRedirects(response, redirect_url)
+                self.assertRedirects(response, expected_redirect)

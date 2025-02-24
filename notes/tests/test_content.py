@@ -1,66 +1,84 @@
-import uuid
-
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.test import TestCase
-from django.urls import reverse
-
 from notes.forms import NoteForm
-from notes.models import Note
-
-User = get_user_model()
+from .base_test import HOME_URL, EDIT_NOTE_URL, BaseTestCase, ADD_NOTE_URL
 
 
-class TestHomePage(TestCase):
-
-    HOME_URL = reverse('notes:list')
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.author = User.objects.create(username='TestAuthor')
-        cls.notes = Note.objects.bulk_create([
-            Note(
-                title=f'Заметка {index}',
-                text='Просто текст.',
-                slug=f'test{index}',
-                author=cls.author
-            )
-            for index in range(settings.NOTES_COUNT_ON_HOME_PAGE)
-        ])
-
-    def setUp(self):
-        self.client.force_login(self.author)
-
-    def test_notes_count(self):
-        response = self.client.get(self.HOME_URL)
-        notes_count = response.context['object_list'].count()
-        self.assertEqual(notes_count, settings.NOTES_COUNT_ON_HOME_PAGE)
-
-    def test_notes_order(self):
-        response = self.client.get(self.HOME_URL)
-        notes = response.context['object_list']
-        all_IDs = [note.id for note in notes]
-        sorted_dates = sorted(all_IDs)
-        self.assertEqual(all_IDs, sorted_dates)
-
-
-class TestDetailPage(TestCase):
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.author = User.objects.create(username='АвторЗаметки')
-        cls.note = Note.objects.create(
-            title='Тестовая заметка',
-            text='Просто текст.',
-            author=cls.author,
-            slug=uuid.uuid4().hex
+class TestNoteViews(BaseTestCase):
+    def test_add_note_view_has_form(self):
+        """
+        Проверяет, что на странице создания заметки для
+        авторизованного пользователя передаётся форма.
+        """
+        self.assertIn(
+            'form',
+            self.author_client.get(ADD_NOTE_URL).context
         )
-        cls.detail_url = reverse('notes:edit', args=(cls.note.slug,))
+        self.assertIsInstance(
+            self.author_client.get(ADD_NOTE_URL).context['form'],
+            NoteForm
+        )
 
-    def setUp(self):
-        self.client.force_login(self.author)
+    def test_edit_note_view_has_form_for_author(self):
+        """
+        Проверяет, что на странице редактирования заметки для
+        автора передаётся форма.
+        """
+        self.assertIn(
+            'form',
+            self.author_client.get(EDIT_NOTE_URL).context
+        )
+        self.assertIsInstance(
+            self.author_client.get(EDIT_NOTE_URL).context['form'],
+            NoteForm
+        )
 
-    def test_authorized_client_has_form(self):
-        response = self.client.get(self.detail_url)
-        self.assertIn('form', response.context)
-        self.assertIsInstance(response.context['form'], NoteForm)
+    def test_author_note_list_contains_note(self):
+        """
+        Проверяет, что заметка автора присутствует в списке заметок на
+        главной странице и её поля передаются корректно.
+        """
+        notes = self.author_client.get(HOME_URL).context['object_list']
+        self.assertIn(self.note, notes)
+        test_note = notes.get(pk=self.note.pk)
+        self.assert_note_fields_equal(
+            test_note,
+            {
+                'title': self.note.title,
+                'text': self.note.text,
+                'slug': self.note.slug,
+                'author': self.note.author,
+            }
+        )
+
+    def test_non_author_note_list_does_not_contain_note(self):
+        """
+        Проверяет, что заметка автора не попадает в список заметок для
+        другого пользователя.
+        """
+        self.assertEqual(
+            self.not_author_client.get(
+                HOME_URL
+            ).context['object_list'].count(),
+            0
+        )
+
+    def test_add_note_view_no_form_for_unauthenticated(self):
+        """
+        Проверяет, что незалогиненный пользователь не получает форму на
+        странице создания заметки.
+        """
+        response = self.client.get(ADD_NOTE_URL)
+        self.assertNotIn(
+            'form',
+            response.context if response.context else {}
+        )
+
+    def test_edit_note_view_no_form_for_unauthenticated(self):
+        """
+        Проверяет, что незалогиненный пользователь не получает форму на
+        странице редактирования заметки.
+        """
+        response = self.client.get(EDIT_NOTE_URL)
+        self.assertNotIn(
+            'form',
+            response.context if response.context else {}
+        )

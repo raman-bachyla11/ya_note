@@ -1,152 +1,149 @@
-import uuid
 from http import HTTPStatus
+
 from pytils.translit import slugify
 
-from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
-from django.urls import reverse
 from notes.forms import WARNING
 from notes.models import Note
 
-User = get_user_model()
+from .base_test import (
+    ADD_NOTE_URL,
+    BaseTestCase,
+    DELETE_NOTE_URL,
+    EDIT_NOTE_URL,
+    SUCCESS_URL
+)
 
 
-class BaseNoteTestCase(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.author = User.objects.create(username='TestAuthor')
-        cls.not_author = User.objects.create(username='NotAuthor')
-        cls.url_success = reverse('notes:success')
-
-    def setUp(self):
-        # Initialize clients for both the author and a non-author
-        self.auth_client = Client()
-        self.auth_client.force_login(self.author)
-        self.unauth_client = Client()
-        self.unauth_client.force_login(self.not_author)
-
-    def post_note_form(self, client, url, data, follow=False):
-        return client.post(url, data=data, follow=follow)
-
-
-class TestSlugNaming(BaseNoteTestCase):
-    VALID_SLUG = uuid.uuid4().hex
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        cls.note = Note.objects.create(
-            title='TestNote',
-            text='TestText',
-            slug=cls.VALID_SLUG,
-            author=cls.author
-        )
-        cls.url_note_add = reverse('notes:add')
-        cls.url_note_list = reverse('notes:list')
-        cls.form_data = {
-            'title': 'New Note',
-            'text': 'New Text',
-            'slug': uuid.uuid4().hex,
-        }
+class TestNoteManagement(BaseTestCase):
+    """
+    Тестирование создания, редактирования и удаления заметок,
+    включая проверку уникальности/генерации слага.
+    """
 
     def test_note_with_valid_slug(self):
-        response = self.post_note_form(
-            self.auth_client,
-            self.url_note_add,
-            self.form_data
+        """Проверка создания заметки с валидными слагом."""
+        response = self.assert_note_count_change(
+            1,
+            self.author_client.post,
+            ADD_NOTE_URL,
+            self.get_valid_data()
         )
-        self.assertRedirects(response, self.url_success)
+        self.assertRedirects(response, SUCCESS_URL)
+        note = Note.objects.get(title=self.get_valid_data()['title'])
+        self.assert_note_fields_equal(note, {
+            'title': self.get_valid_data()['title'],
+            'text': self.get_valid_data()['text'],
+            'slug': self.get_valid_data()['slug'],
+            'author': self.author
+        })
 
     def test_slug_must_be_unique(self):
-        # Include required fields to reach the unique-slug validation
-        data = {
-            'title': 'Another Note',
-            'text': 'Another text',
-            'slug': self.VALID_SLUG,
-        }
-        response = self.post_note_form(
-            self.auth_client,
-            self.url_note_add,
-            data
+        """
+        Проверка уникальности слага заметки.
+        При попытке создать заметку с уже существующим слагом
+        должно выводиться сообщение об ошибке.
+        """
+        duplicated_slug_data = self.get_valid_data(
+            title='Another Note',
+            text='Another text',
+            slug=self.note.slug,
         )
+        initial_note_count = Note.objects.count()
+        response = self.author_client.post(ADD_NOTE_URL, duplicated_slug_data)
         self.assertFormError(
             response,
             'form',
             'slug',
-            f'{self.VALID_SLUG}{WARNING}'
+            f'{self.note.slug}{WARNING}'
         )
+        self.assertEqual(Note.objects.count(), initial_note_count)
 
     def test_empty_slug_is_allowed(self):
-        data_with_empty_slug = {
-            'title': 'new_title',
-            'text': 'Some text',
-            'slug': ''
-        }
-        response = self.post_note_form(
-            self.auth_client,
-            self.url_note_add,
-            data_with_empty_slug
+        """
+        Проверка допуска пустого слага.
+        Если слаг не указан, он генерируется автоматически
+        на основе названия заметки.
+        """
+        form_data_without_slug = self.get_valid_data()
+        form_data_without_slug.pop('slug', None)
+        response = self.assert_note_count_change(
+            1,
+            self.author_client.post,
+            ADD_NOTE_URL,
+            form_data_without_slug
         )
-        self.assertRedirects(response, self.url_success)
-
-        note = Note.objects.get(title='new_title')
-        expected_slug = slugify('new_title')
-        self.assertEqual(note.slug, expected_slug)
-
-
-class TestNoteEditDelete(BaseNoteTestCase):
-    VALID_SLUG = uuid.uuid4().hex
-    UPDATED_TITLE = 'Updated title'
-    UPDATED_TEXT = 'Updated text'
-    ORIGINAL_TEST_TITLE = 'TestTitle'
-    ORIGINAL_TEST_TEXT = 'TestText'
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        cls.note = Note.objects.create(
-            title=cls.ORIGINAL_TEST_TITLE,
-            text=cls.ORIGINAL_TEST_TEXT,
-            slug=cls.VALID_SLUG,
-            author=cls.author
-        )
-        cls.edited_form_data = {
-            'title': cls.UPDATED_TITLE,
-            'text': cls.UPDATED_TEXT,
-            'slug': cls.note.slug
+        self.assertRedirects(response, SUCCESS_URL)
+        note = Note.objects.get(title=form_data_without_slug['title'])
+        expected_slug = slugify(form_data_without_slug['title'])
+        expected_data = {
+            'title': form_data_without_slug['title'],
+            'text': form_data_without_slug['text'],
+            'slug': expected_slug,
+            'author': self.author
         }
-        cls.url_edit_note = reverse('notes:edit', args=(cls.note.slug,))
-        cls.url_delete_note = reverse('notes:delete', args=(cls.note.slug,))
+        self.assert_note_fields_equal(note, expected_data)
 
     def test_author_edit_note(self):
-        response = self.post_note_form(
-            self.auth_client,
-            self.url_edit_note,
-            self.edited_form_data,
-            follow=True
+        """Проверка возможности редактирования заметки автором."""
+        edited_data = self.get_valid_data(
+            title='Edited Title',
+            text='Edited Text',
+            slug='edited-slug'
         )
-        self.assertRedirects(response, self.url_success)
-        self.note.refresh_from_db()
-        self.assertEqual(self.note.title, self.UPDATED_TITLE)
-        self.assertEqual(self.note.text, self.UPDATED_TEXT)
+        response = self.author_client.post(EDIT_NOTE_URL, edited_data)
+        self.assertRedirects(response, SUCCESS_URL)
+        updated_note = Note.objects.get(pk=self.note.pk)
+        self.assert_note_fields_equal(updated_note, {
+            'title': edited_data['title'],
+            'text': edited_data['text'],
+            'slug': edited_data['slug'],
+            'author': self.author
+        })
 
     def test_not_author_cant_edit_note(self):
-        response = self.post_note_form(
-            self.unauth_client,
-            self.url_edit_note,
-            self.edited_form_data
+        """
+        Проверка невозможности редактирования заметки пользователем,
+        не являющимся автором.
+        Данные заметки не должны изменяться, и возвращается ошибка 404.
+        """
+        original_data = {
+            'title': self.note.title,
+            'text': self.note.text,
+            'slug': self.note.slug,
+            'author': self.note.author,
+        }
+        edited_data = self.get_valid_data(
+            title='Edited Title',
+            text='Edited Text',
+            slug='edited-slug'
         )
+        response = self.not_author_client.post(EDIT_NOTE_URL, edited_data)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
-        self.note.refresh_from_db()
-        self.assertEqual(self.note.title, self.ORIGINAL_TEST_TITLE)
-        self.assertEqual(self.note.text, self.ORIGINAL_TEST_TEXT)
+        unchanged_note = Note.objects.get(pk=self.note.pk)
+        self.assert_note_fields_equal(unchanged_note, original_data)
 
     def test_note_deletable_by_author(self):
-        response = self.auth_client.delete(self.url_delete_note, follow=True)
-        self.assertRedirects(response, self.url_success)
+        """Проверка возможности удаления заметки автором."""
+        initial_count = Note.objects.count()
+        response = self.author_client.delete(DELETE_NOTE_URL)
+        self.assertRedirects(response, SUCCESS_URL)
+        self.assertEqual(Note.objects.count(), initial_count - 1)
         self.assertFalse(Note.objects.filter(pk=self.note.pk).exists())
 
     def test_not_author_cant_delete_note(self):
-        response = self.unauth_client.delete(self.url_delete_note)
+        """
+        Проверка невозможности удаления заметки пользователем,
+        не являющимся автором. Количество заметок остается неизменным.
+        """
+        initial_count = Note.objects.count()
+        response = self.not_author_client.delete(DELETE_NOTE_URL)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
-        self.assertTrue(Note.objects.filter(pk=self.note.pk).exists())
+        self.assertEqual(Note.objects.count(), initial_count)
+        note = Note.objects.get(pk=self.note.pk)
+        original_data = {
+            'title': self.note.title,
+            'text': self.note.text,
+            'slug': self.note.slug,
+            'author': self.note.author,
+        }
+        self.assert_note_fields_equal(note, original_data)
