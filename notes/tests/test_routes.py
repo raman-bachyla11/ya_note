@@ -8,7 +8,10 @@ from .base_test import (
     LOGIN_URL,
     LOGOUT_URL,
     NOTE_DETAIL_URL,
-    SIGNUP_URL
+    SIGNUP_URL,
+    EDIT_NOTE_REDIRECT,
+    NOTE_DETAIL_REDIRECT,
+    DELETE_NOTE_REDIRECT
 )
 
 
@@ -23,6 +26,9 @@ class TestRoutes(BaseTestCase):
         cases = (
             # Общедоступные страницы
             (HOME_URL, self.client, HTTPStatus.FOUND),
+            (EDIT_NOTE_URL, self.client, HTTPStatus.FOUND),
+            (NOTE_DETAIL_URL, self.client, HTTPStatus.FOUND),
+            (DELETE_NOTE_URL, self.client, HTTPStatus.FOUND),
             (LOGIN_URL, self.client, HTTPStatus.OK),
             (LOGOUT_URL, self.client, HTTPStatus.OK),
             (SIGNUP_URL, self.client, HTTPStatus.OK),
@@ -37,8 +43,7 @@ class TestRoutes(BaseTestCase):
         )
         for url, client, expected_status in cases:
             with self.subTest(url=url, client=client):
-                response = client.get(url)
-                self.assertEqual(response.status_code, expected_status)
+                self.assertEqual(client.get(url).status_code, expected_status)
 
     def test_redirects_for_anonymous_client(self):
         """
@@ -46,12 +51,10 @@ class TestRoutes(BaseTestCase):
         доступа к защищённым маршрутам.
         """
         protected_urls = (
-            EDIT_NOTE_URL,
-            NOTE_DETAIL_URL,
-            DELETE_NOTE_URL
+            (EDIT_NOTE_URL, EDIT_NOTE_REDIRECT),
+            (NOTE_DETAIL_URL, NOTE_DETAIL_REDIRECT),
+            (DELETE_NOTE_URL, DELETE_NOTE_REDIRECT),
         )
-        for url in protected_urls:
+        for url, expected_redirect in protected_urls:
             with self.subTest(url=url):
-                expected_redirect = self.get_expected_redirect(url)
-                response = self.client.get(url)
-                self.assertRedirects(response, expected_redirect)
+                self.assertRedirects(self.client.get(url), expected_redirect)

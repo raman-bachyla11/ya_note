@@ -20,35 +20,33 @@ class TestNoteManagement(BaseTestCase):
     включая проверку уникальности/генерации слага.
     """
 
-    def test_note_with_valid_slug(self):
-        """Проверка создания заметки с валидными слагом."""
-        response = self.assert_note_count_change(
-            1,
-            self.author_client.post,
-            ADD_NOTE_URL,
-            self.get_valid_data()
+    def test_authorized_client_can_create_note_with_valid_slug(self):
+        """Проверка создания заметки с валидным слагом."""
+        Note.objects.all().delete()
+        self.assertRedirects(
+            self.author_client.post(ADD_NOTE_URL, self.VALID_NOTE_DATA),
+            SUCCESS_URL
         )
-        self.assertRedirects(response, SUCCESS_URL)
-        note = Note.objects.get(title=self.get_valid_data()['title'])
-        self.assert_note_fields_equal(note, {
-            'title': self.get_valid_data()['title'],
-            'text': self.get_valid_data()['text'],
-            'slug': self.get_valid_data()['slug'],
-            'author': self.author
-        })
+        self.assertEqual(Note.objects.count(), 1)
+        note = Note.objects.first()
+        self.assertEqual(note.title, self.VALID_NOTE_DATA['title'])
+        self.assertEqual(note.text, self.VALID_NOTE_DATA['text'])
+        self.assertEqual(note.slug, self.VALID_NOTE_DATA['slug'])
+        self.assertEqual(note.author, self.author)
 
-    def test_slug_must_be_unique(self):
+    def test_duplicated_slug_is_not_allowed(self):
         """
         Проверка уникальности слага заметки.
         При попытке создать заметку с уже существующим слагом
-        должно выводиться сообщение об ошибке.
+        должно выводиться сообщение об ошибке,
+        а состав записей в таблице не изменяется.
         """
-        duplicated_slug_data = self.get_valid_data(
-            title='Another Note',
-            text='Another text',
-            slug=self.note.slug,
-        )
-        initial_note_count = Note.objects.count()
+        duplicated_slug_data = {
+            'title': 'Another Note',
+            'text': 'Another text',
+            'slug': self.note.slug,
+        }
+        notes_before = list(Note.objects.order_by('pk'))
         response = self.author_client.post(ADD_NOTE_URL, duplicated_slug_data)
         self.assertFormError(
             response,
@@ -56,49 +54,42 @@ class TestNoteManagement(BaseTestCase):
             'slug',
             f'{self.note.slug}{WARNING}'
         )
-        self.assertEqual(Note.objects.count(), initial_note_count)
+        notes_after = list(Note.objects.order_by('pk'))
+        self.assertEqual(notes_after, notes_before)
 
-    def test_empty_slug_is_allowed(self):
+    def test_auto_generate_slug_when_absent(self):
         """
-        Проверка допуска пустого слага.
-        Если слаг не указан, он генерируется автоматически
+        Проверка автоматической генерации слага, если он не указан.
+        Если слаг отсутствует, он генерируется автоматически
         на основе названия заметки.
         """
-        form_data_without_slug = self.get_valid_data()
+        Note.objects.all().delete()
+        form_data_without_slug = self.VALID_NOTE_DATA.copy()
         form_data_without_slug.pop('slug', None)
-        response = self.assert_note_count_change(
-            1,
-            self.author_client.post,
-            ADD_NOTE_URL,
-            form_data_without_slug
-        )
+        response = self.author_client.post(
+            ADD_NOTE_URL, form_data_without_slug)
+        self.assertEqual(Note.objects.count(), 1)
         self.assertRedirects(response, SUCCESS_URL)
-        note = Note.objects.get(title=form_data_without_slug['title'])
-        expected_slug = slugify(form_data_without_slug['title'])
-        expected_data = {
-            'title': form_data_without_slug['title'],
-            'text': form_data_without_slug['text'],
-            'slug': expected_slug,
-            'author': self.author
-        }
-        self.assert_note_fields_equal(note, expected_data)
+        note = Note.objects.first()
+        self.assertEqual(note.title, form_data_without_slug['title'])
+        self.assertEqual(note.text, form_data_without_slug['text'])
+        self.assertEqual(note.slug, slugify(form_data_without_slug['title']))
+        self.assertEqual(note.author, self.author)
 
     def test_author_edit_note(self):
         """Проверка возможности редактирования заметки автором."""
-        edited_data = self.get_valid_data(
-            title='Edited Title',
-            text='Edited Text',
-            slug='edited-slug'
-        )
+        edited_data = {
+            'title': 'Edited Title',
+            'text': 'Edited Text',
+            'slug': 'edited-slug'
+        }
         response = self.author_client.post(EDIT_NOTE_URL, edited_data)
         self.assertRedirects(response, SUCCESS_URL)
         updated_note = Note.objects.get(pk=self.note.pk)
-        self.assert_note_fields_equal(updated_note, {
-            'title': edited_data['title'],
-            'text': edited_data['text'],
-            'slug': edited_data['slug'],
-            'author': self.author
-        })
+        self.assertEqual(updated_note.title, edited_data['title'])
+        self.assertEqual(updated_note.text, edited_data['text'])
+        self.assertEqual(updated_note.slug, edited_data['slug'])
+        self.assertEqual(updated_note.author, self.author)
 
     def test_not_author_cant_edit_note(self):
         """
@@ -106,21 +97,17 @@ class TestNoteManagement(BaseTestCase):
         не являющимся автором.
         Данные заметки не должны изменяться, и возвращается ошибка 404.
         """
-        original_data = {
-            'title': self.note.title,
-            'text': self.note.text,
-            'slug': self.note.slug,
-            'author': self.note.author,
-        }
-        edited_data = self.get_valid_data(
-            title='Edited Title',
-            text='Edited Text',
-            slug='edited-slug'
+        self.assertEqual(
+            self.not_author_client.post(
+                EDIT_NOTE_URL, self.VALID_NOTE_DATA
+            ).status_code,
+            HTTPStatus.NOT_FOUND
         )
-        response = self.not_author_client.post(EDIT_NOTE_URL, edited_data)
-        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
         unchanged_note = Note.objects.get(pk=self.note.pk)
-        self.assert_note_fields_equal(unchanged_note, original_data)
+        self.assertEqual(unchanged_note.title, self.note.title)
+        self.assertEqual(unchanged_note.text, self.note.text)
+        self.assertEqual(unchanged_note.slug, self.note.slug)
+        self.assertEqual(unchanged_note.author, self.author)
 
     def test_note_deletable_by_author(self):
         """Проверка возможности удаления заметки автором."""
@@ -133,17 +120,17 @@ class TestNoteManagement(BaseTestCase):
     def test_not_author_cant_delete_note(self):
         """
         Проверка невозможности удаления заметки пользователем,
-        не являющимся автором. Количество заметок остается неизменным.
+        не являющимся автором. Количество заметок остаётся неизменным.
         """
-        initial_count = Note.objects.count()
-        response = self.not_author_client.delete(DELETE_NOTE_URL)
-        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
-        self.assertEqual(Note.objects.count(), initial_count)
+        notes_before = list(Note.objects.order_by('pk'))
+        self.assertEqual(
+            self.not_author_client.delete(DELETE_NOTE_URL).status_code,
+            HTTPStatus.NOT_FOUND
+        )
+        notes_after = list(Note.objects.order_by('pk'))
+        self.assertEqual(notes_after, notes_before)
         note = Note.objects.get(pk=self.note.pk)
-        original_data = {
-            'title': self.note.title,
-            'text': self.note.text,
-            'slug': self.note.slug,
-            'author': self.note.author,
-        }
-        self.assert_note_fields_equal(note, original_data)
+        self.assertEqual(note.title, self.note.title)
+        self.assertEqual(note.text, self.note.text)
+        self.assertEqual(note.slug, self.note.slug)
+        self.assertEqual(note.author, self.author)
