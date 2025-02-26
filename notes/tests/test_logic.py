@@ -21,17 +21,8 @@ class TestNoteManagement(BaseTestCase):
 
     def test_authorized_client_can_create_note_with_valid_slug(self):
         """Проверка создания заметки с валидным слагом."""
-        Note.objects.all().delete()
-        self.assertRedirects(
-            self.author_client.post(ADD_NOTE_URL, self.NOTE_DATA),
-            SUCCESS_URL
-        )
-        self.assertEqual(Note.objects.count(), 1)
-        note = Note.objects.first()
-        self.assertEqual(note.title, self.NOTE_DATA['title'])
-        self.assertEqual(note.text, self.NOTE_DATA['text'])
-        self.assertEqual(note.slug, self.NOTE_DATA['slug'])
-        self.assertEqual(note.author, self.author)
+        self.assert_note_created_with_expected_slug(
+            expected_slug=self.note_data['slug'])
 
     def test_duplicated_slug_is_not_allowed(self):
         """
@@ -40,9 +31,9 @@ class TestNoteManagement(BaseTestCase):
         должно выводиться сообщение об ошибке,
         а состав записей в таблице не изменяется.
         """
-        self.NOTE_DATA['slug'] = self.note.slug
+        self.note_data['slug'] = self.note.slug
         notes_before = list(Note.objects.order_by('pk'))
-        response = self.author_client.post(ADD_NOTE_URL, self.NOTE_DATA)
+        response = self.author_client.post(ADD_NOTE_URL, self.note_data)
         self.assertFormError(
             response,
             'form',
@@ -58,31 +49,18 @@ class TestNoteManagement(BaseTestCase):
         Если слаг отсутствует, он генерируется автоматически
         на основе названия заметки.
         """
-        Note.objects.all().delete()
-        del self.NOTE_DATA['slug']
-        response = self.author_client.post(
-            ADD_NOTE_URL, self.NOTE_DATA)
-        self.assertEqual(Note.objects.count(), 1)
-        self.assertRedirects(response, SUCCESS_URL)
-        note = Note.objects.first()
-        self.assertEqual(note.title, self.NOTE_DATA['title'])
-        self.assertEqual(note.text, self.NOTE_DATA['text'])
-        self.assertEqual(note.slug, slugify(self.NOTE_DATA['title']))
-        self.assertEqual(note.author, self.author)
+        del self.note_data['slug']
+        self.assert_note_created_with_expected_slug(
+            expected_slug=slugify(self.note_data['title']))
 
     def test_author_edit_note(self):
         """Проверка возможности редактирования заметки автором."""
-        self.NOTE_DATA.update({
-            'title': 'Edited Title',
-            'text': 'Edited Text',
-            'slug': 'edited-slug'
-        })
-        response = self.author_client.post(EDIT_NOTE_URL, self.NOTE_DATA)
+        response = self.author_client.post(EDIT_NOTE_URL, self.note_data)
         self.assertRedirects(response, SUCCESS_URL)
         updated_note = Note.objects.get(pk=self.note.pk)
-        self.assertEqual(updated_note.title, self.NOTE_DATA['title'])
-        self.assertEqual(updated_note.text, self.NOTE_DATA['text'])
-        self.assertEqual(updated_note.slug, self.NOTE_DATA['slug'])
+        self.assertEqual(updated_note.title, self.note_data['title'])
+        self.assertEqual(updated_note.text, self.note_data['text'])
+        self.assertEqual(updated_note.slug, self.note_data['slug'])
         self.assertEqual(updated_note.author, self.note.author)
 
     def test_not_author_cant_edit_note(self):
@@ -93,7 +71,7 @@ class TestNoteManagement(BaseTestCase):
         """
         self.assertEqual(
             self.not_author_client.post(
-                EDIT_NOTE_URL, self.NOTE_DATA
+                EDIT_NOTE_URL, self.note_data
             ).status_code,
             HTTPStatus.NOT_FOUND
         )

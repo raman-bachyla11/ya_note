@@ -46,10 +46,20 @@ class BaseTestCase(TestCase):
         cls.author_client.force_login(cls.author)
         cls.not_author_client = Client()
         cls.not_author_client.force_login(cls.not_author)
-
-    def setUp(self):
-        self.NOTE_DATA = {
+        cls.note_data = {
             'title': 'Valid Title',
             'text': 'Valid Text',
             'slug': 'valid-slug'
         }
+
+    def assert_note_created_with_expected_slug(self, expected_slug):
+        """Метод для проверки успешного создания заметки с ождаемым слагом."""
+        Note.objects.all().delete()
+        response = self.author_client.post(ADD_NOTE_URL, self.note_data)
+        self.assertRedirects(response, SUCCESS_URL)
+        self.assertEqual(Note.objects.count(), 1)
+        note = Note.objects.first()
+        self.assertEqual(note.title, self.note_data['title'])
+        self.assertEqual(note.text, self.note_data['text'])
+        self.assertEqual(note.slug, expected_slug)
+        self.assertEqual(note.author, self.note.author)
