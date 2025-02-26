@@ -24,8 +24,8 @@ class TestRoutes(BaseTestCase):
     def test_status_codes(self):
         """Проверка всех кодов возврата с различными клиентами."""
         cases = (
-            # Общедоступные страницы
-            (HOME_URL, self.client, HTTPStatus.FOUND),
+            # Маршруты страниц проверки анонимного пользователя
+            (HOME_URL, self.client, HTTPStatus.OK),
             (EDIT_NOTE_URL, self.client, HTTPStatus.FOUND),
             (NOTE_DETAIL_URL, self.client, HTTPStatus.FOUND),
             (DELETE_NOTE_URL, self.client, HTTPStatus.FOUND),

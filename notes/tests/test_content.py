@@ -1,5 +1,5 @@
 from notes.forms import NoteForm
-from .base_test import HOME_URL, EDIT_NOTE_URL, BaseTestCase, ADD_NOTE_URL
+from .base_test import NOTE_LIST_URL, EDIT_NOTE_URL, BaseTestCase, ADD_NOTE_URL
 
 
 class TestNoteViews(BaseTestCase):
@@ -11,6 +11,10 @@ class TestNoteViews(BaseTestCase):
         urls = (ADD_NOTE_URL, EDIT_NOTE_URL)
         for url in urls:
             with self.subTest(url=url):
+                self.assertIn(
+                    'form',
+                    self.author_client.get(url).context
+                )
                 self.assertIsInstance(
                     self.author_client.get(url).context['form'],
                     NoteForm
@@ -21,7 +25,7 @@ class TestNoteViews(BaseTestCase):
         Проверяет, что заметка автора присутствует в списке заметок на
         главной странице и её поля передаются корректно.
         """
-        notes = self.author_client.get(HOME_URL).context['object_list']
+        notes = self.author_client.get(NOTE_LIST_URL).context['object_list']
         self.assertIn(self.note, notes)
         note = notes.get(pk=self.note.pk)
         self.assertEqual(note.title, self.note.title)
@@ -36,5 +40,5 @@ class TestNoteViews(BaseTestCase):
         """
         self.assertNotIn(
             self.note,
-            self.not_author_client.get(HOME_URL).context['object_list']
+            self.not_author_client.get(NOTE_LIST_URL).context['object_list']
         )

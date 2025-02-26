@@ -2,9 +2,6 @@ from http import HTTPStatus
 
 from pytils.translit import slugify
 
-from notes.forms import WARNING
-from notes.models import Note
-
 from .base_test import (
     ADD_NOTE_URL,
     BaseTestCase,
@@ -12,6 +9,8 @@ from .base_test import (
     EDIT_NOTE_URL,
     SUCCESS_URL
 )
+from notes.forms import WARNING
+from notes.models import Note
 
 
 class TestNoteManagement(BaseTestCase):
@@ -24,14 +23,14 @@ class TestNoteManagement(BaseTestCase):
         """Проверка создания заметки с валидным слагом."""
         Note.objects.all().delete()
         self.assertRedirects(
-            self.author_client.post(ADD_NOTE_URL, self.VALID_NOTE_DATA),
+            self.author_client.post(ADD_NOTE_URL, self.NOTE_DATA),
             SUCCESS_URL
         )
         self.assertEqual(Note.objects.count(), 1)
         note = Note.objects.first()
-        self.assertEqual(note.title, self.VALID_NOTE_DATA['title'])
-        self.assertEqual(note.text, self.VALID_NOTE_DATA['text'])
-        self.assertEqual(note.slug, self.VALID_NOTE_DATA['slug'])
+        self.assertEqual(note.title, self.NOTE_DATA['title'])
+        self.assertEqual(note.text, self.NOTE_DATA['text'])
+        self.assertEqual(note.slug, self.NOTE_DATA['slug'])
         self.assertEqual(note.author, self.author)
 
     def test_duplicated_slug_is_not_allowed(self):
@@ -41,13 +40,9 @@ class TestNoteManagement(BaseTestCase):
         должно выводиться сообщение об ошибке,
         а состав записей в таблице не изменяется.
         """
-        duplicated_slug_data = {
-            'title': 'Another Note',
-            'text': 'Another text',
-            'slug': self.note.slug,
-        }
+        self.NOTE_DATA['slug'] = self.note.slug
         notes_before = list(Note.objects.order_by('pk'))
-        response = self.author_client.post(ADD_NOTE_URL, duplicated_slug_data)
+        response = self.author_client.post(ADD_NOTE_URL, self.NOTE_DATA)
         self.assertFormError(
             response,
             'form',
@@ -64,32 +59,31 @@ class TestNoteManagement(BaseTestCase):
         на основе названия заметки.
         """
         Note.objects.all().delete()
-        form_data_without_slug = self.VALID_NOTE_DATA.copy()
-        form_data_without_slug.pop('slug', None)
+        del self.NOTE_DATA['slug']
         response = self.author_client.post(
-            ADD_NOTE_URL, form_data_without_slug)
+            ADD_NOTE_URL, self.NOTE_DATA)
         self.assertEqual(Note.objects.count(), 1)
         self.assertRedirects(response, SUCCESS_URL)
         note = Note.objects.first()
-        self.assertEqual(note.title, form_data_without_slug['title'])
-        self.assertEqual(note.text, form_data_without_slug['text'])
-        self.assertEqual(note.slug, slugify(form_data_without_slug['title']))
+        self.assertEqual(note.title, self.NOTE_DATA['title'])
+        self.assertEqual(note.text, self.NOTE_DATA['text'])
+        self.assertEqual(note.slug, slugify(self.NOTE_DATA['title']))
         self.assertEqual(note.author, self.author)
 
     def test_author_edit_note(self):
         """Проверка возможности редактирования заметки автором."""
-        edited_data = {
+        self.NOTE_DATA.update({
             'title': 'Edited Title',
             'text': 'Edited Text',
             'slug': 'edited-slug'
-        }
-        response = self.author_client.post(EDIT_NOTE_URL, edited_data)
+        })
+        response = self.author_client.post(EDIT_NOTE_URL, self.NOTE_DATA)
         self.assertRedirects(response, SUCCESS_URL)
         updated_note = Note.objects.get(pk=self.note.pk)
-        self.assertEqual(updated_note.title, edited_data['title'])
-        self.assertEqual(updated_note.text, edited_data['text'])
-        self.assertEqual(updated_note.slug, edited_data['slug'])
-        self.assertEqual(updated_note.author, self.author)
+        self.assertEqual(updated_note.title, self.NOTE_DATA['title'])
+        self.assertEqual(updated_note.text, self.NOTE_DATA['text'])
+        self.assertEqual(updated_note.slug, self.NOTE_DATA['slug'])
+        self.assertEqual(updated_note.author, self.note.author)
 
     def test_not_author_cant_edit_note(self):
         """
@@ -99,7 +93,7 @@ class TestNoteManagement(BaseTestCase):
         """
         self.assertEqual(
             self.not_author_client.post(
-                EDIT_NOTE_URL, self.VALID_NOTE_DATA
+                EDIT_NOTE_URL, self.NOTE_DATA
             ).status_code,
             HTTPStatus.NOT_FOUND
         )
@@ -107,7 +101,7 @@ class TestNoteManagement(BaseTestCase):
         self.assertEqual(unchanged_note.title, self.note.title)
         self.assertEqual(unchanged_note.text, self.note.text)
         self.assertEqual(unchanged_note.slug, self.note.slug)
-        self.assertEqual(unchanged_note.author, self.author)
+        self.assertEqual(unchanged_note.author, self.note.author)
 
     def test_note_deletable_by_author(self):
         """Проверка возможности удаления заметки автором."""
@@ -133,4 +127,4 @@ class TestNoteManagement(BaseTestCase):
         self.assertEqual(note.title, self.note.title)
         self.assertEqual(note.text, self.note.text)
         self.assertEqual(note.slug, self.note.slug)
-        self.assertEqual(note.author, self.author)
+        self.assertEqual(note.author, self.note.author)
